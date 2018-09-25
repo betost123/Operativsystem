@@ -29,6 +29,7 @@
 #include <ctype.h>
 #include <sys/stat.h>
 #include <fcntl.h>
+#include <errno.h>
 
 /*
  * Function declarations
@@ -81,11 +82,11 @@ int main(void) {
                 if(strcmp(cmd.pgm->pgmlist[0], "exit") == 0) {
                     exit(0);
                 } else if (strcmp(cmd.pgm->pgmlist[0], "cd") == 0) {
-                    if(chdir(cmd.pgm->pgmlist[1]) != 0) {
-                        printf("Directory not found");
-                    } else {
-                        chdir(cmd.pgm->pgmlist[1]);
+                    if(chdir(cmd.pgm->pgmlist[1]) == -1) {
+                        printf("Unsuccessful completion of cd");
+                        errno = 2;
                     }
+                      chdir(cmd.pgm->pgmlist[1]);
                 } else {
                     executeCommand(&cmd);
                 }
@@ -94,7 +95,7 @@ int main(void) {
         if(line) {
             free(line);
         }
-
+        //https://www.geeksforgeeks.org/zombie-processes-prevention/
         waitpid(1, NULL, 0);
     }
     return 0;
@@ -128,23 +129,22 @@ void executeCommand(Command *cmd) {
     if(pid == -1) {printf("No child process created\n"); exit(1);}
     else if(pid == 0) { //child process
 
-      if(cmd->rstdout) {
         //redirect stdout
+      if(cmd->rstdout) {
         //create file, give rwx permission
         int fd = open(cmd->rstdout, O_CREAT,S_IRWXU);
         dup2(fd, 1);
+      }
+      //redirect stdin
+      if(cmd->rstdin) {
+        int fd = open(cmd->rstdin, 0);
+        dup2(fd, 0);
       }
 
       if(p->next) {
         // if it has pipes, execute pipe
         executePipe(cmd);
       } else {
-        //if no pipe, then execute command
-        if(cmd->rstdin) {
-          //redirect stdin
-          int fd = open(cmd->rstdin, 0);
-          dup2(fd, 0);
-        }
 
         if(cmd->bakground != 0) {
           //if there is a background process, ignore interrupts
@@ -160,64 +160,70 @@ void executeCommand(Command *cmd) {
       // wait for the child to complete and reap the exit status of the child
         int status;
         waitpid(pid, &status, 0);
+
+        //https://www.geeksforgeeks.org/zombie-processes-prevention/
+        signal(SIGCHLD,SIG_IGN); //prevent zombie process
     }
-    signal(SIGCHLD,SIG_IGN); //prevent zombie process
 
 }
 
 void executePipe(Command *cmd) {
-  Pgm *p;
-  p = cmd->pgm;
-  int pipefd[2]; //pipe file descriptors
-  int pid;
+    Pgm *p;
+    p = cmd->pgm;
+    int pipefd[2]; //pipe file descriptors
+    int pid;
 
-//creates a new pipe
-  if(pipe(pipefd) == -1) {
-    //https://www.tldp.org/LDP/lpg/node11.html
-    perror("fork");
-    exit(1);
-  }
+    //creates a new pipe
+    if(pipe(pipefd) == -1) {
+        //https://www.tldp.org/LDP/lpg/node11.html
+        perror("fork");
+        exit(1);
+    }
 
-//fork off the child process
-//parent & child have their own pair of r/w fd to the same pipe object
-  pid = fork();
-  if(pid == -1) {printf("No child process created\n"); exit(1);}
-  else if(pid == 0) { //child process
+    //fork off the child process
+    //parent & child have their own pair of r/w fd to the same pipe object
+    pid = fork();
 
-    //http://tldp.org/LDP/lpg/node11.html
-    close(pipefd[0]); //child process closes input side of pipe
-    dup2(pipefd[1], 1); //send through output end of pipe, close old fd
+    if(pid == -1) {
+        printf("No child process created\n");
+        exit(1);
+    } else if(pid == 0) { //child process
 
-    p = p->next;
-    if(p->next) {
-      //if more pipes, use recursion
-      executePipe(cmd);
-    } else {
+      //http://tldp.org/LDP/lpg/node11.html
+      close(pipefd[0]); //child process closes input side of pipe
+      dup2(pipefd[1], 1); //send through output end of pipe, close old fd
+
+      //redirect stdin
       if(cmd->rstdin) {
         int fd = open(cmd->rstdin, 0);
         dup2(fd, 0);
       }
 
-      if(cmd->bakground != 0) {
-        //if there is a background process, ignore interrupts
-        signal(SIGINT, SIG_IGN);
+      p = p->next;
+      if(p->next) {
+        //if more pipes, use recursion
+        executePipe(cmd);
+      } else {
+
+          if(cmd->bakground != 0) {
+              //if there is a background process, ignore interrupts
+              signal(SIGINT, SIG_IGN);
+          }
+          execvp(p->pgmlist[0], p->pgmlist);
       }
-      execvp(p->pgmlist[0], p->pgmlist);
 
     }
+    else { //parent process
+        close(pipefd[1]); //parent closes output side of pipe
+        dup2(pipefd[0], 0); //read from pipe, close old fd
 
-  }
-  else {
-    close(pipefd[1]); //parent closes output side of pipe
-    dup2(pipefd[0], 0); //read from pipe, close old fd
+        if(cmd->bakground != 0) {
+            signal(SIGINT, SIG_IGN);
+        }
 
-    if(cmd->bakground != 0) {
-      signal(SIGINT, SIG_IGN);
+        execvp(p->pgmlist[0], p->pgmlist);
+        signal(SIGCHLD,SIG_IGN); //prevent zombie process
     }
-
-    execvp(p->pgmlist[0], p->pgmlist);
-    signal(SIGCHLD,SIG_IGN); //prevent zombie process
-  }
 }
 
 
