@@ -83,8 +83,8 @@ int main(void) {
                     exit(0);
                 } else if (strcmp(cmd.pgm->pgmlist[0], "cd") == 0) {
                     if(chdir(cmd.pgm->pgmlist[1]) == -1) {
-                        printf("Unsuccessful completion of cd");
                         errno = 2;
+                        printf("errno %d\n", errno);
                     }
                       chdir(cmd.pgm->pgmlist[1]);
                 } else {
@@ -109,7 +109,6 @@ int main(void) {
  */
 void sighandler(int signum) {
     printf("Caught signal %d, coming out...\n", signum);
-    exit(1);
 }
 
 /*
@@ -123,10 +122,14 @@ void executeCommand(Command *cmd) {
     Pgm *p;
     p = cmd->pgm;
     int pid;
+    int status;
 
     //fork
     pid = fork();
-    if(pid == -1) {printf("No child process created\n"); exit(1);}
+    if(pid == -1) {
+      printf("No child process created\n");
+      exit(1);
+    }
     else if(pid == 0) { //child process
 
         //redirect stdout
@@ -141,29 +144,34 @@ void executeCommand(Command *cmd) {
         dup2(fd, 0);
       }
 
+
       if(p->next) {
         // if it has pipes, execute pipe
         executePipe(cmd);
       } else {
 
-        if(cmd->bakground != 0) {
-          //if there is a background process, ignore interrupts
-          signal(SIGINT, SIG_IGN);
-        }
-
         //execute!
-        execvp(p->pgmlist[0], p->pgmlist);
+        if(execvp(p->pgmlist[0], p->pgmlist) == -1) {
+          printf("error\n");
+          exit(1);
+        }
 
       }
 
     } else {
       // wait for the child to complete and reap the exit status of the child
+      if(cmd->bakground == 0) {
+        signal(SIGCHLD,SIG_IGN); //prevent zombie process
+        //must have this if for background process thing to work
         int status;
         waitpid(pid, &status, 0);
+      }
 
         //https://www.geeksforgeeks.org/zombie-processes-prevention/
         signal(SIGCHLD,SIG_IGN); //prevent zombie process
+        return;
     }
+    wait(&status);
 
 }
 
@@ -172,6 +180,7 @@ void executePipe(Command *cmd) {
     p = cmd->pgm;
     int pipefd[2]; //pipe file descriptors
     int pid;
+    int status;
 
     //creates a new pipe
     if(pipe(pipefd) == -1) {
@@ -193,23 +202,16 @@ void executePipe(Command *cmd) {
       close(pipefd[0]); //child process closes input side of pipe
       dup2(pipefd[1], 1); //send through output end of pipe, close old fd
 
-      //redirect stdin
-      if(cmd->rstdin) {
-        int fd = open(cmd->rstdin, 0);
-        dup2(fd, 0);
-      }
-
       p = p->next;
       if(p->next) {
         //if more pipes, use recursion
         executePipe(cmd);
       } else {
 
-          if(cmd->bakground != 0) {
-              //if there is a background process, ignore interrupts
-              signal(SIGINT, SIG_IGN);
+          if(execvp(p->pgmlist[0], p->pgmlist) == -1) {
+            printf("error\n");
+            exit(1);
           }
-          execvp(p->pgmlist[0], p->pgmlist);
       }
 
     }
@@ -218,12 +220,24 @@ void executePipe(Command *cmd) {
         dup2(pipefd[0], 0); //read from pipe, close old fd
 
         if(cmd->bakground != 0) {
-            signal(SIGINT, SIG_IGN);
+          //must have this if for background process thing to work
+          signal(SIGCHLD,SIG_IGN); //prevent zombie process
+          int status;
+          waitpid(pid, &status, 0);
         }
 
-        execvp(p->pgmlist[0], p->pgmlist);
+        if(execvp(p->pgmlist[0], p->pgmlist) == -1) {
+          printf("error\n");
+          exit(1);
+        }
+
+
         signal(SIGCHLD,SIG_IGN); //prevent zombie process
     }
+    close(pipefd[0]);
+    close(pipefd[1]);
+    wait(&status);
+
 }
 
 
