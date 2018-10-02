@@ -86,7 +86,7 @@ int main(void) {
                         errno = 2;
                         printf("errno %d\n", errno);
                     }
-                      //chdir(cmd.pgm->pgmlist[1]);
+
                 } else {
                     executeCommand(&cmd);
                 }
@@ -150,13 +150,20 @@ void executeCommand(Command *cmd) {
         executePipe(cmd);
       } else {
 
+        //
+        if(cmd->bakground != 0) {
+          signal(SIGINT, SIG_IGN);
+        }
+        //
+
         //execute!
         if(execvp(p->pgmlist[0], p->pgmlist) == -1) {
           printf("error\n");
-          exit(1);
+          _exit(1);
         }
 
       }
+
 
     } else {
       // wait for the child to complete and reap the exit status of the child
@@ -166,6 +173,7 @@ void executeCommand(Command *cmd) {
         int status;
         waitpid(pid, &status, 0);
       }
+
 
         //https://www.geeksforgeeks.org/zombie-processes-prevention/
         signal(SIGCHLD,SIG_IGN); //prevent zombie process
@@ -208,18 +216,25 @@ void executePipe(Command *cmd) {
         executePipe(cmd);
       } else {
 
+        //
+        if(cmd->bakground != 0) {
+          signal(SIGINT, SIG_IGN);
+        }
+        //
+
           if(execvp(p->pgmlist[0], p->pgmlist) == -1) {
             printf("error\n");
-            exit(1);
+            _exit(1);
           }
       }
+
 
     }
     else { //parent process
         close(pipefd[1]); //parent closes output side of pipe
         dup2(pipefd[0], 0); //read from pipe, close old fd
 
-        if(cmd->bakground != 0) {
+        if(cmd->bakground == 0) { //!=
           //must have this if for background process thing to work
           signal(SIGCHLD,SIG_IGN); //prevent zombie process
           int status;
@@ -228,7 +243,7 @@ void executePipe(Command *cmd) {
 
         if(execvp(p->pgmlist[0], p->pgmlist) == -1) {
           printf("error\n");
-          exit(1);
+          _exit(1);
         }
 
 
