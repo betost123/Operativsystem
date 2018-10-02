@@ -135,7 +135,7 @@ void executeCommand(Command *cmd) {
         //redirect stdout
       if(cmd->rstdout) {
         //create file, give rwx permission
-        int fd = open(cmd->rstdout, O_CREAT,S_IRWXU);
+        int fd = open(cmd->rstdout, O_CREAT | O_APPEND | O_WRONLY ,S_IRWXU);
         dup2(fd, 1);
       }
       //redirect stdin
