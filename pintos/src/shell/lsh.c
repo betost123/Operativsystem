@@ -86,7 +86,7 @@ int main(void) {
                         errno = 2;
                         printf("errno %d\n", errno);
                     }
-                      chdir(cmd.pgm->pgmlist[1]);
+                      //chdir(cmd.pgm->pgmlist[1]);
                 } else {
                     executeCommand(&cmd);
                 }
