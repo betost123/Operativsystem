@@ -70,6 +70,8 @@ timer_calibrate (void)
 int64_t
 timer_ticks (void)
 {
+/* 1. forbid current status to be interrupted
+   2. save statue before interrupted,in old_level*/
   enum intr_level old_level = intr_disable ();
   int64_t t = ticks;
   intr_set_level (old_level);
@@ -86,22 +88,21 @@ timer_elapsed (int64_t then)
 
 /* Sleeps for approximately TICKS timer ticks.  Interrupts must
    be turned on. */
+/* 1. when call timers sleep, block the thread immediatelly
+   2. add a new member named ticks_blocked, to record how many time the thread sleeps
+   3. then in each tick interrupt, check the statue of the thread
+   4. each time checking the status, then ticks_blocked-1, when it equals to 0, wake up the thread */
 void
 timer_sleep (int64_t ticks)
 {
-  enum intr_level old_level;
-
-  if(ticks <= 0) {
-    return;
-  }
-
-  ASSERT(intr_get_level() == INTR_ON);
-  old_level = intr_disable();
-  struct thread *currentThread = thread_current();
-  currentThread->blockedTicks = ticks;
-  thread_block();
-  intr_set_level(old_level);
-
+    if(ticks<=0)
+	return;
+    ASSERT(intr_get_level()==INTR_ON);//keep interrupts turned on
+    enum intr_level old_level = intr_disable();// //start keep the procedure without interrupt
+    struct thread *current_thread = thread_current();
+    current_thread->ticks_blocked = ticks;//record thread blocked time(add ticks_blocked ti the thread struct)
+    thread_block();//block thread
+    intr_set_level (old_level);//end keep the procedure without interrupt
 }
 
 /* Sleeps for approximately MS milliseconds.  Interrupts must be
@@ -173,14 +174,14 @@ timer_print_stats (void)
 {
   printf ("Timer: %"PRId64" ticks\n", timer_ticks ());
 }
-
+
 /* Timer interrupt handler. */
 static void
 timer_interrupt (struct intr_frame *args UNUSED)
 {
   ticks++;
   thread_tick ();
-  thread_foreach(checkIfThreadShouldBeBlocked, NULL); //check thread sleep time
+  thread_foreach(blocked_thread_check,NULL);// add check thread sleep time
 }
 
 /* Returns true if LOOPS iterations waits for more than one timer
