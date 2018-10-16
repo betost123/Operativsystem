@@ -35,7 +35,8 @@ timer.c:
 void timer_sleep (int64_t ticks);
 "Check if thread should sleep, then assert that interrupts are turned on.
 Enter critical region with interrupts disabled.
-Set sleeping time & block thread."
+Set sleeping time & block thread.
+When thread wakes up, reset interrupt level"
 
 static void timer_interrupt(struct intr_frame * args UNUSED);
 "added the sleep time check"
